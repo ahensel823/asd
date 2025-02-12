@@ -1,0 +1,197 @@
+<!-- templates/mobile_index.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Contador Móvil</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+        #count {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 5em;
+            z-index: 2;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        #video-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+        }
+        #inputVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="count">0</div>
+    <div id="video-container">
+        <video id="inputVideo"></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
+
+    <script>
+        const socket = io();
+        let count = 0;
+        let lastHeadPosition = null;
+        const HEAD_THRESHOLD = 0.3; // 30% del alto de la pantalla
+        let lastResetTime = 0;
+
+        // Configurar MediaPipe
+        const faceDetection = new FaceDetection({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`;
+            }
+        });
+
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
+
+        faceDetection.setOptions({
+            model: 'short',
+            minDetectionConfidence: 0.5
+        });
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        // Configurar cámara
+        const video = document.getElementById('inputVideo');
+        const canvas = document.getElementById('outputCanvas');
+        const ctx = canvas.getContext('2d');
+
+        faceDetection.onResults(processFaceResults);
+        hands.onResults(processHandResults);
+
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: window.innerWidth },
+                        height: { ideal: window.innerHeight }
+                    }
+                });
+                video.srcObject = stream;
+                await new Promise(resolve => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Iniciar procesamiento
+                requestAnimationFrame(processFrame);
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+            }
+        }
+
+        async function processFrame() {
+            if (video.readyState < 2) return;
+            
+            await faceDetection.send({ image: video });
+            await hands.send({ image: video });
+            
+            requestAnimationFrame(processFrame);
+        }
+
+        function processFaceResults(results) {
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        if (results.detections.length > 0) {
+            const detection = results.detections[0];
+            const bbox = detection.boundingBox;
+            
+            ctx.strokeStyle = "green";
+            ctx.lineWidth = 4;
+            ctx.strokeRect(
+                bbox.xCenter * canvas.width - (bbox.width * canvas.width) / 2,
+                bbox.yCenter * canvas.height - (bbox.height * canvas.height) / 2,
+                bbox.width * canvas.width,
+                bbox.height * canvas.height
+            );
+
+            const normalizedY = bbox.yCenter;
+            if (lastHeadPosition !== null) {
+                if (normalizedY < HEAD_THRESHOLD && lastHeadPosition > HEAD_THRESHOLD) {
+                    socket.emit('increment_count');
+                }
+            }
+            lastHeadPosition = normalizedY;
+        }
+        
+        ctx.restore();
+    }
+
+
+        function processHandResults(results) {
+            if (results.multiHandLandmarks) {
+                results.multiHandLandmarks.forEach(landmarks => {
+                    const indexTip = landmarks[8];
+                    if (indexTip.y < 0.5) { // Si el dedo índice está en la mitad superior
+                        const currentTime = Date.now();
+                        if (currentTime - lastResetTime > 2000) {
+                            lastResetTime = currentTime;
+                            socket.emit('reset_count');
+                        }
+                    }
+                });
+            }
+        }
+
+        // Manejar actualizaciones del contador
+        socket.on('update_count', (data) => {
+            count = data.count;
+            document.getElementById('count').textContent = count;
+        });
+
+        // Iniciar aplicación
+        setupCamera();
+        
+        // Ajustar para orientación móvil
+        window.addEventListener('resize', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        });
+    </script>
+</body>
+</html>
