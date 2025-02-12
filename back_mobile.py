@@ -5,10 +5,9 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
   const socket = io({
-        transports: ["websocket"],
-        pingInterval: 25000, // Cada 25 segundos
-        pingTimeout: 5000,   // Tiempo de espera antes de desconectar
-        });
+  transports: ["websocket"], // Evita fallback a HTTP polling
+  upgrade: false, // Previene reconexiones forzadas
+});
 
 count = 0
 
