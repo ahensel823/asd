@@ -132,6 +132,59 @@
             requestAnimationFrame(processFrame);
         }
 
+        const drawLine = (ctx, yPosition) => {
+            ctx.beginPath();
+            ctx.moveTo(0, yPosition);
+            ctx.lineTo(canvas.width, yPosition);
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        };
+
+        const LINE_Y = 300; // Ajusta la posición de la línea roja
+        let superoLinea = false;
+
+        let gestoReinicioDetectado = false; // Añadido para comprobar el gesto de reinicio
+
+function processHandResults(results) {
+    if (results.multiHandLandmarks) {
+        results.multiHandLandmarks.forEach(landmarks => {
+            const indexTip = landmarks[8]; // Dedo índice (dedo principal)
+            const handY = indexTip.y * canvas.height; // Convertimos la posición y a píxeles
+
+            // Lógica de repetición
+            if (handY < LINE_Y && !superoLinea) {
+                superoLinea = true; // Marcar que pasó la línea
+            }
+
+            if (handY > LINE_Y && superoLinea) {
+                count += 1; // Cuenta la repetición cuando regresa
+                superoLinea = false;
+                actualizarContador(count);
+            }
+
+            // Detectar gesto de reinicio sobre la línea roja
+            if (handY < LINE_Y && !gestoReinicioDetectado) {
+                gestoReinicioDetectado = true; // Marcar gesto de reinicio
+                count = 0;
+                actualizarContador(0);
+                socket.emit('reset_count');
+            } else if (handY > LINE_Y) {
+                gestoReinicioDetectado = false; // Reseteamos el gesto
+            }
+
+            // Detectar gesto de reinicio con la mano
+            if (indexTip.y < 0.5) { // Si el dedo índice está en la mitad superior
+                const currentTime = Date.now();
+                if (currentTime - lastResetTime > 2000) {
+                    lastResetTime = currentTime;
+                    socket.emit('reset_count');
+                }
+            }
+        });
+    }
+}
+
         function processFaceResults(results) {
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -161,22 +214,6 @@
         
         ctx.restore();
     }
-
-
-        function processHandResults(results) {
-            if (results.multiHandLandmarks) {
-                results.multiHandLandmarks.forEach(landmarks => {
-                    const indexTip = landmarks[8];
-                    if (indexTip.y < 0.5) { // Si el dedo índice está en la mitad superior
-                        const currentTime = Date.now();
-                        if (currentTime - lastResetTime > 2000) {
-                            lastResetTime = currentTime;
-                            socket.emit('reset_count');
-                        }
-                    }
-                });
-            }
-        }
 
         // Manejar actualizaciones del contador
         socket.on('update_count', (data) => {
