@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NES Emulator</title>
+</head>
+<body>
+  <canvas id="screen" width="256" height="240"></canvas>
+  <script type="module">
+    import { CPU6502 } from './6502.js';
+    import { PPU } from './PPU.js';
+    import { loadChrRom } from './rom.js';
+
+    async function main() {
+      const ppu = new PPU(256, 240);
+      const cpu = new CPU6502(ppu);
+      const chrData = await loadChrRom('./juego.nes');
+      ppu.loadPattern(chrData.slice(0, 0x2000), 0);
+      const canvas = document.getElementById('screen');
+      const ctx = canvas.getContext('2d');
+    
+      for (let i = 0; i < 16; i++) {
+        const x = (i % 4) * 8;
+        const y = Math.floor(i / 4) * 8;
+        ppu.drawTile(canvas.getContext('2d').getImageData(0, 0, 256, 240), x, y, i);
+      }
+
+      ppu.oam[0] = 100;
+      ppu.oam[1] = 0;
+      ppu.oam[2] = 0;
+      ppu.oam[3] = 100;
+
+      ppu.renderToCanvas(ctx);
+    }
+
+    main();
+  </script>
+</body>
+</html>
